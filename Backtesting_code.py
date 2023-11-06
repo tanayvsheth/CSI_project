@@ -35,7 +35,7 @@ def calculate_macd(data, fast_window=12, slow_window=26, signal_window=9):
     exp2 = data.ewm(span=slow_window, adjust=False).mean()
     macd = exp1 - exp2
     signal = macd.ewm(span=signal_window, adjust=False).mean()
-    return macd, signal_data
+    return macd, signal
 
 #Implementing technical Indicators
 rsi_df = calculate_rsi(df)
@@ -77,7 +77,7 @@ for row in range(0, len(close_df)):
         for stock in selected_stocks:
             entry_price = entry_price_l1[stock] 
             current_price = close_df[stock][row]
-            target = entry_price * 1.01  # Exit if price is above target
+            target = entry_price * 1.02  # Exit if price is above target
             stoploss = entry_price * 0.995  # Exit if price is below stoploss
             trade = tradebook.loc[(tradebook['Datetime'] ==  date.replace(hour=9, minute=30)) & (tradebook['Stock'] == stock)].index[0]
             
