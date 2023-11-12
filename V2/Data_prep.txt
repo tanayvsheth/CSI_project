@@ -1,0 +1,71 @@
+!pip install baostock -i https://pypi.tuna.tsinghua.edu.cn/simple/ --trusted-host pypi.tuna.tsinghua.edu.cn # Google colab lib installation
+
+import baostock as bs
+import pandas as pd
+
+# Downloading Composition Data
+
+# 登陆系统
+lg = bs.login()
+
+# Get the composition of the CSI500 index
+rs = bs.query_zz500_stocks(date='2021-01-01')
+
+# Print the query response information
+print('Query error_code:'+rs.error_code)
+print('Query error_msg:'+rs.error_msg)
+
+zz500_stocks = []
+while (rs.error_code == '0') & rs.next():
+    # Get one row of data and merge it with the previous data
+    zz500_stocks.append(rs.get_row_data())
+
+result = pd.DataFrame(zz500_stocks, columns=rs.fields)
+idx_csi500  = result
+idx_csi500.to_csv('idx_csi500_comp.csv')
+
+# logout of BaoStock system
+bs.logout()
+
+#Downloading Stock Data 
+
+idx_csi500 = pd.read_csv("idx_csi500_comp.csv")
+
+all_stocks = []
+
+for code in idx_csi500['code'] :
+
+    rs = bs.query_history_k_data_plus(code,
+        "date,time,code,open,high,low,close,volume,amount,adjustflag",
+        start_date='2022-04-01', end_date='2022-07-31',
+        frequency="30", adjustflag="3")
+
+    stock = []
+
+    while (rs.error_code == '0') & rs.next():
+        stock.append(rs.get_row_data())
+
+    result = pd.DataFrame(stock, columns=rs.fields)
+
+    result = result.fillna(0,inplace = True) # missing value set to 0
+    all_stocks.append(result)
+	
+# Creating CLOSE dataframe , similarly can be done for OPEN, HIGH, LOW and VOLUME as well
+
+df_list = all_stocks
+
+# CLOSE
+
+all_closes = []
+for i in range(0,len(idx_csi500['code'])):
+    code = idx_csi500['code'][i]
+    df = df_list[i]
+    new_df = pd.DataFrame({'Datetime': df['time'], code: df['close']})
+
+    new_df.set_index('Datetime', inplace=True)
+    all_closes.append(new_df)
+
+all_closes_df = pd.concat(all_closes, axis=1)
+#all_closes_df.to_csv('CSI_500_close.csv')
+
+all_closes_df	

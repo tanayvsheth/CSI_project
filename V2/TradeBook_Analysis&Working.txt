@@ -1,0 +1,127 @@
+# This code was run step-by-step in a jupyter notebook environment to produce output at each step
+
+import pandas as pd
+tradebook = pd.read_csv('Tradebook.csv')
+tradebook['Datetime'] = pd.to_datetime(tradebook['Datetime'])
+tradebook_insample = tradebook[tradebook['Datetime'] < pd.to_datetime('2022-06-30')]
+tradebook_outsample = tradebook[tradebook['Datetime'] >= pd.to_datetime('2022-06-30')]
+
+# PnL Output
+tradebook_insample['PnL'].sum()
+tradebook_outsample['PnL'].sum()
+
+#Hit ratiio
+(tradebook_insample['PnL'] > 0).sum()/len(tradebook_insample['PnL'] > 0) 
+(tradebook_outsample['PnL'] > 0).sum()/len(tradebook_outsample['PnL'] > 0)
+
+# Converting to daily pnl
+dailypnl_outsample = tradebook_outsample.groupby('Datetime')['PnL'].sum().reset_index()
+dailypnl_insample = tradebook_insample.groupby('Datetime')['PnL'].sum().reset_index()
+
+#Eq weighted CSI 500 working
+df = pd.read_csv("CSI_500_close.csv")
+df['Datetime'] = df['Datetime'].apply(lambda x: datetime.strptime(str(x), '%Y%m%d%H%M%S%f'))
+df['Datetime'] = pd.to_datetime(df['Datetime'])
+df.set_index('Datetime', inplace=True)
+df = df.sort_index()
+
+# Equally weighted adjusting for 0/missing values as well
+df.replace(0, pd.NA, inplace=True)
+weights = df.div(df.sum(axis=1), axis=0)
+equally_weighted_index = (weights * df).sum(axis=1)
+equally_weighted_index_pct_change = equally_weighted_index.pct_change()
+
+eq_weighted_csi = pd.DataFrame(equally_weighted_index_pct_change)
+eq_weighted_csi['Date'] = eq_weighted_csi.index.date
+eq_weighted_csi = eq_weighted_csi.groupby('Date')[0].sum().reset_index()
+eq_weighted_csi = eq_weighted_csi[pd.to_datetime(eq_weighted_csi['Date']) >= pd.to_datetime('2022-04-08')] # adjusting for indicator based missing trade days 
+
+
+# Combining index with pnl dataframe
+dailypnl_insample.set_index('Datetime',inplace = True)
+dailypnl_outsample.set_index('Datetime',inplace = True)
+dailypnl_insample.index = dailypnl_insample.index.date
+dailypnl_outsample.index = dailypnl_outsample.index.date
+
+dailypnl_insample['Index_PnL'] = eq_weighted_csi.set_index('Date')[0]
+dailypnl_outsample['Index_PnL'] = eq_weighted_csi.set_index('Date')[0]
+
+dailypnl_outsample.sum()
+dailypnl_insample.sum()
+
+# Plotting index vs strategy invested money
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+pnl_df = dailypnl_insample
+
+risk_free_rate = 0.07/200 # daily 
+market_returns = pnl_df['Index_PnL'].mean()
+asset_returns = pnl_df['PnL']
+
+notional = 100000
+
+daily_returns = pnl_df['PnL'] * notional # Daily Returns
+cumulative_returns = daily_returns.cumsum() # Cumulative Returns
+
+sharpe_ratio = (np.mean(daily_returns) - risk_free_rate) / np.std(daily_returns) # Calculate Sharpe Ratio
+treynor_ratio = (pnl_df['PnL'].mean()  - risk_free_rate) / (market_returns) # Calculate Treynor Ratio
+
+# Plot the movement of the invested amount
+plt.plot(pnl_df.index, cumulative_returns + notional,label='Daily Cumulated Returns')
+plt.plot(pnl_df.index, (1+pnl_df['Index_PnL'].cumsum())*(notional),label='Index Returns')
+plt.title('Invested Amount Over Time')
+plt.xlabel('Date')
+plt.ylabel('Invested Amount')
+plt.legend()
+plt.show()
+
+# Display the results
+print("Sharpe Ratio:", sharpe_ratio)
+print("Treynor Ratio:", treynor_ratio)
+
+# Outsample Analysis
+
+pnl_df = dailypnl_outsample
+
+risk_free_rate = 0.07/200 # daily 
+market_returns = pnl_df['Index_PnL'].mean()
+asset_returns = pnl_df['PnL']
+
+notional = 100000
+
+daily_returns = pnl_df['PnL'] * notional # Daily Returns
+cumulative_returns = daily_returns.cumsum() # Cumulative Returns
+
+sharpe_ratio = (np.mean(daily_returns) - risk_free_rate) / np.std(daily_returns) # Calculate Sharpe Ratio
+treynor_ratio = (pnl_df['PnL'].mean()  - risk_free_rate) / (market_returns) # Calculate Treynor Ratio
+
+# Plot the movement of the invested amount
+plt.plot(pnl_df.index, cumulative_returns + notional,label='Daily Cumulated Returns')
+plt.plot(pnl_df.index, (1+pnl_df['Index_PnL'].cumsum())*(notional),label='Index Returns')
+plt.title('Invested Amount Over Time')
+plt.xlabel('Date')
+plt.ylabel('Invested Amount')
+plt.legend()
+plt.show()
+
+print("Sharpe Ratio:", sharpe_ratio)
+print("Treynor Ratio:", treynor_ratio)
+
+#Drawdown
+cumulative_pnl = dailypnl_insample['PnL'].cumsum()
+max_drawdown = (cumulative_pnl - cumulative_pnl.expanding().max()).min()
+max_drawdown
+
+# Brokerage
+len(tradebook_insample)
+128*0.0005
+
+#Slippage
+tradebook_outsample['Entry Price Slipped'] = tradebook_outsample['Entry Price']*1.001
+tradebook_insample['Entry Price Slipped'] = tradebook_insample['Entry Price']*1.001
+tradebook_outsample['Slipped_PnL'] = (tradebook_outsample['Exit Price'] - tradebook_outsample['Entry Price Slipped'])/tradebook_outsample['Entry Price Slipped']
+tradebook_insample['Slipped_PnL'] = (tradebook_insample['Exit Price'] - tradebook_insample['Entry Price Slipped'])/tradebook_insample['Entry Price Slipped']
+tradebook_outsample['Slipped_PnL'].sum()
+tradebook_insample['Slipped_PnL'].sum()

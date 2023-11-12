@@ -1,0 +1,114 @@
+# Import libraries and data
+import pandas as pd
+from datetime import datetime
+
+df = pd.read_csv("CSI_500_close.csv")
+
+df['Datetime'] = df['Datetime'].apply(lambda x: datetime.strptime(str(x), '%Y%m%d%H%M%S%f'))
+df['Datetime'] = pd.to_datetime(df['Datetime'])
+df.set_index('Datetime', inplace=True)
+df = df.sort_index()
+
+# Functions to calculate Technical indicators for mean reversiona and oversold
+def calculate_rsi(data, window=14):
+    close_delta = data.diff()
+    up = close_delta.clip(lower=0)
+    down = -1 * close_delta.clip(upper=0)
+    ema_up = up.ewm(com=window - 1, min_periods=window).mean()
+    ema_down = down.ewm(com=window - 1, min_periods=window).mean()
+    rs = ema_up / ema_down
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+def calculate_bollinger_bands(data, window=20, num_std=2):
+    rolling_mean = data.rolling(window=window).mean()
+    rolling_std = data.rolling(window=window).std()
+    upper_band = rolling_mean + (rolling_std * num_std)
+    lower_band = rolling_mean - (rolling_std * num_std)
+    return upper_band, lower_band
+
+def calculate_stochastic_oscillator(data, window=14):
+    data_min = data.rolling(window=window).min()
+    data_max = data.rolling(window=window).max()
+    k = 100 * (data - data_min) / (data_max - data_min)
+    d = k.rolling(window=3).mean()
+    return k, d
+
+def calculate_macd(data, fast_window=12, slow_window=26, signal_window=9):
+    exp1 = data.ewm(span=fast_window, adjust=False).mean()
+    exp2 = data.ewm(span=slow_window, adjust=False).mean()
+    macd = exp1 - exp2
+    signal = macd.ewm(span=signal_window, adjust=False).mean()
+    return macd, signal
+
+
+#Implementing technical Indicators
+rsi_df = calculate_rsi(df)
+upper_band_df, lower_band_df = calculate_bollinger_bands(df)
+k_df, d_df = calculate_stochastic_oscillator(df)
+macd_data , signal_data = calculate_macd(df)
+
+# Filtering and Ranking of stocks based on Technical Indicators
+filter_stocks = (rsi_df < 30 ) & (macd_data > signal_data)
+filter_stocks = filter_stocks.astype(int)
+filter_stocks['Stock_count'] = filter_stocks.sum(axis=1)
+k_df_rank = k_df.rank(axis=1, ascending=True)
+
+# Backtesting code
+# Backtesting code
+tradebook = pd.DataFrame(columns=['Datetime', 'Stock', 'Entry Price', 'Exit Price', 'Exit Time'])
+close_df = df
+
+for row in range(0, len(close_df)):
+    date = close_df.index[row]
+    time = close_df.index[row].time()
+
+    if time == pd.to_datetime('10:00').time():
+        # Select top 5 ranks from stochastic ranks that are part of filtered stocks each day
+        selected_stocks = []
+        for i in k_df_rank.iloc[row].sort_values().index:
+            if filter_stocks[i][row] == 1:
+                selected_stocks.append(i)
+            if len(selected_stocks) == 5:
+                break
+
+        entry_price_l1 = {}
+        for stock in selected_stocks:
+            entry_price = close_df.loc[date, stock]
+            entry_price_l1[stock] = entry_price
+            tradebook = pd.concat([tradebook, pd.DataFrame({'Datetime': [date], 'Stock': [stock], 'Entry Price': [entry_price],'Exit Price': [0], 'Exit Time': [0] })], ignore_index=True)
+
+    elif time > pd.to_datetime('10:30').time() and time < pd.to_datetime('15:00').time():
+        # exit based on target and stoploss
+        for stock in selected_stocks:
+            entry_price = entry_price_l1[stock]
+            current_price = close_df[stock][row]
+            target = entry_price * 1.02  # Exit if price is above target
+            stoploss = entry_price * 0.995  # Exit if price is below stoploss
+            trade = tradebook.loc[(tradebook['Datetime'] ==  date.replace(hour=10, minute=00)) & (tradebook['Stock'] == stock)].index[0]
+
+            if (current_price >= target) & (tradebook['Exit Price'][trade] == 0):
+                tradebook.loc[trade, 'Exit Price'] = target
+                tradebook.loc[trade, 'Exit Time'] = time
+
+            elif (current_price <= stoploss) & (tradebook['Exit Price'][trade] == 0):
+                tradebook.loc[trade, 'Exit Price'] = stoploss
+                tradebook.loc[trade, 'Exit Time'] = time
+
+    elif time == pd.to_datetime('15:00').time():
+        # square off pending positions
+        for stock in selected_stocks:
+            entry_price = entry_price_l1[stock]
+            current_price = close_df[stock][row]
+            trade = tradebook.loc[(tradebook['Datetime'] ==  date.replace(hour=10, minute=00)) & (tradebook['Stock'] == stock)].index[0]
+
+            if tradebook['Exit Price'][trade] == 0:
+                tradebook.loc[trade, 'Exit Price'] = current_price
+                tradebook.loc[trade, 'Exit Time'] = time
+
+tradebook['PnL'] = (tradebook['Exit Price'] - tradebook['Entry Price'])/tradebook['Entry Price']
+tradebook.to_csv('Tradebook.csv')
+
+#Split testing sample outputs
+tradebook_insample = tradebook[tradebook['Datetime'] < pd.to_datetime('2022-06-30')]
+tradebook_outsample = tradebook[tradebook['Datetime'] >= pd.to_datetime('2022-06-30')]
